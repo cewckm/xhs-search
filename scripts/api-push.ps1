@@ -79,10 +79,48 @@ function Get-GitBlobBytes {
   return $ms.ToArray()
 }
 
-# ---------- 1. which files differ from the base commit ----------
+<#
+Compute the git blob id the same way git and GitHub do:
+    sha1("blob " + <byteLength> + "\0" + <bytes>)
+Comparing this against the remote tree tells us which files really changed,
+without needing any local git object that the server created.
+#>
+function Get-GitBlobSha {
+  param([byte[]]$Bytes)
+  $header = [Text.Encoding]::ASCII.GetBytes("blob $($Bytes.Length)`0")
+  $all = New-Object byte[] ($header.Length + $Bytes.Length)
+  [Array]::Copy($header, 0, $all, 0, $header.Length)
+  [Array]::Copy($Bytes, 0, $all, $header.Length, $Bytes.Length)
+  $sha1 = [System.Security.Cryptography.SHA1]::Create()
+  try {
+    $hash = $sha1.ComputeHash($all)
+    return (($hash | ForEach-Object { $_.ToString('x2') }) -join '')
+  } finally { $sha1.Dispose() }
+}
+
+# ---------- 1. which files differ from the remote tip ----------
+#
+# The remote may hold commits that do not exist locally (the API creates them
+# server-side, and `git fetch` is blocked here), so `git diff <base>` cannot be
+# used. Instead we read the REMOTE tree from the API, hash each local file the
+# way git does, and publish exactly the files whose hash differs.
+$remoteTree = @{}
+$treeResp = Invoke-GitHub -Method GET -Path "/repos/$Owner/$Repo/git/trees/$Base`?recursive=1"
+foreach ($node in $treeResp.tree) {
+  if ($node.type -eq 'blob') { $remoteTree[$node.path] = $node.sha }
+}
+Write-Output ("remote tree at $($Base.Substring(0,7)): $($remoteTree.Count) blobs")
+
 Push-Location $RepoDir
 try {
-  $changed = @(git diff --name-only $Base HEAD)
+  # Everything tracked and present locally, minus the private scratch files.
+  $candidates = @(git ls-files)
+  $changed = @()
+  foreach ($path in $candidates) {
+    $bytes = Get-GitBlobBytes -Rev 'HEAD' -Path $path
+    $sha = Get-GitBlobSha -Bytes $bytes
+    if ($remoteTree[$path] -ne $sha) { $changed += $path }
+  }
   if ($changed.Count -eq 0) { Write-Output 'nothing to publish'; exit 0 }
   Write-Output ("files to publish: " + $changed.Count)
   foreach ($f in $changed) { Write-Output "  $f" }
@@ -90,8 +128,6 @@ try {
   # ---------- 2. blobs ----------
   $entries = @()
   foreach ($path in $changed) {
-    # Bytes come from the object database (HEAD), never from the working tree,
-    # so line endings and uncommitted edits cannot leak into the published file.
     $bytes = Get-GitBlobBytes -Rev 'HEAD' -Path $path
     $b64 = [Convert]::ToBase64String($bytes)
     $blob = Invoke-GitHub -Method POST -Path "/repos/$Owner/$Repo/git/blobs" -Body @{
