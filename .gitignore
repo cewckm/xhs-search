@@ -1,0 +1,25 @@
+# Runtime / local state — never commit
+config.json
+config.resolved.json
+osclick-cal.json
+*.log
+heartbeat.json
+status.json
+autoread-state.json
+
+# Knowledge base and reports produced by running the skill
+kb/
+reports/
+edge-profile/
+
+# Node / Python
+node_modules/
+__pycache__/
+*.pyc
+
+# OS / editor
+Thumbs.db
+Desktop.ini
+.DS_Store
+.vscode/
+.idea/

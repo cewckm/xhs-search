@@ -1,0 +1,42 @@
+{
+  "name": "dsh-skill-xhs-search",
+  "version": "1.0.0",
+  "private": true,
+  "description": "小红书笔记搜索与阅读技能：用系统级鼠标事件驱动一个隔离的浏览器窗口，搜索关键词、打开笔记、抓取正文与评论、落库并生成带配图的报告。",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "install.mjs",
+    "README.md"
+  ],
+  "dsh": {
+    "skill": {
+      "name": "xhs-search",
+      "bundle": "../scripts",
+      "docs": "../docs"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    }
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "skill",
+    "xiaohongshu",
+    "redbook",
+    "crawler"
+  ],
+  "license": "MIT"
+}
