@@ -12,6 +12,18 @@ kb/
 reports/
 edge-profile/
 
+# Secrets — the GitHub helpers write a short-lived token here, then delete it
+_token.txt
+scripts/_token.txt
+.git-credentials
+_gh.png
+docs/GITHUB.local.md
+
+# Private scratch scripts (not part of the published tooling)
+scripts/_push.ps1
+scripts/_migrate.ps1
+scripts/gh-state.mjs
+
 # Node / Python
 node_modules/
 __pycache__/

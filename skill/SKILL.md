@@ -209,6 +209,10 @@ python "{{SCRIPTS_DIR}}/synthesize.py" <报告编号> <起始ISO时间> <结束I
 | `python synthesize.py <n> <since> <until>` | 从知识库合成报告 |
 | `python intel.py <正则> <条数>` | 在知识库里按正则检索情报（2026 优先） |
 | `python md2docx.py <in.md> <out.docx>` | Markdown → Word |
+| `node launch-gh.mjs` | 打开一个**可被工具驱动**的浏览器窗口（复制 profile，用于 GitHub 操作） |
+| `node gh-pat.mjs token` | 通过 GitHub 网页自动生成临时 token（不粘贴、不落库） |
+| `node gh-push.mjs <repo>` | 用 token 建仓库并推送，然后删除 token |
+| `powershell gh-update.ps1 -Message "..."` | **一键更新**：提交 → 生成 token → 推送 → 销毁 token |
 | `curl http://127.0.0.1:{{PORT}}/json/version` | 确认调试端口可用 |
 
 ---
