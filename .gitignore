@@ -21,6 +21,10 @@ docs/GITHUB.local.md
 
 # Private scratch scripts (not part of the published tooling)
 scripts/_push.ps1
+scripts/_push2.ps1
+scripts/_push3.ps1
+scripts/_push4.ps1
+scripts/_push5.ps1
 scripts/_migrate.ps1
 scripts/gh-state.mjs
 

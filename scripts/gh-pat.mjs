@@ -13,7 +13,8 @@ const TOKEN_FILE = join(CONFIG.scriptsDir, '_token.txt');
 const [, , cmd] = process.argv;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // GitHub rejects a duplicate token note, so every run gets a unique name.
-const TOKEN_NOTE = `dsh-xhs-search upload ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`;
+// Seconds matter: two runs in the same minute used to collide.
+const TOKEN_NOTE = `dsh-xhs-search ${new Date().toISOString().replace('T', ' ').slice(0, 19)}`;
 
 const c = await connect();
 const evalJs = async (expression) => {
@@ -117,9 +118,21 @@ try {
       writeFileSync(TOKEN_FILE, token, 'utf8');
       console.log('TOKEN_SAVED ' + TOKEN_FILE + '  前缀:' + token.slice(0, 7) + '…  长度:' + token.length);
     } else {
-      console.log('未抓到 token。可能页面还在确认（密码/2FA），或选择器变了。当前 URL:');
-      console.log(await evalJs('location.href'));
-      console.log(await evalJs('document.body.innerText.slice(0,300)'));
+      // Surface whatever GitHub actually said: "Note has already been taken",
+      // a rate-limit banner, or a 2FA prompt all look different and need
+      // different fixes.
+      const msg = await evalJs(`(() => {
+        const flash = document.querySelector('.flash-error, .flash-warn, .flash-notice, [role=alert]');
+        return JSON.stringify({
+          url: location.href,
+          notice: flash ? flash.textContent.replace(/\\s+/g, ' ').trim().slice(0, 200) : null,
+          head: document.body.innerText.slice(0, 400).replace(/\\n+/g, ' | '),
+        });
+      })()`);
+      console.log('未抓到 token。页面信息:');
+      console.log(msg);
+      // Leave the tab on a listing page so the next attempt starts clean.
+      await c.rpc('Page.navigate', { url: 'https://github.com/settings/tokens' });
     }
   } else {
     console.log('用法: node gh-pat.mjs <probe|waitlogin|token>');
