@@ -1,151 +1,168 @@
 # xhs-search
 
-**给 DeepSeek Harness 的小红书笔记搜索技能** —— 搜索关键词、打开笔记、抓取正文与评论、
-落进本地知识库，再合成带配图的报告。
+**English** | [中文](README.zh.md)
 
-包装成 DSH 插件（`dsh.skill`），装上之后任何会话说一句「帮我查小红书上的 xxx」，
-模型就会加载 `xhs-search` 技能并拿到完整可执行的操作手册。
+**A Xiaohongshu (RED / rednote) note-search skill for DeepSeek Harness** — search a keyword,
+open notes, capture body text and comments, accumulate them in a local knowledge base, then
+synthesise an illustrated report.
+
+Packaged as a DSH plugin (`dsh.skill`): once installed, any session can say "look up xxx on
+Xiaohongshu" and the model loads the `xhs-search` skill with a complete, executable playbook.
 
 ---
 
-## 为什么需要它
+## Why it exists
 
-小红书的 Web 端能识别自动化，直接抓取会连撞三道墙。这个项目把绕过路径完整封装好了：
+Xiaohongshu's web client detects automation, and a naive fetch walks into three walls in a row.
+This project packages the way around them:
 
-| 做法 | 结果 |
+| Approach | Result |
 |---|---|
-| 直接请求笔记 URL | ❌ `安全限制 300013` / `error_code 300031 当前笔记暂时无法浏览` |
-| 浏览器合成事件点击（CDP `Input.dispatchMouseEvent`） | ❌ 前几次能用，很快被识别 → 安全限制 / 验证码 |
-| **Windows 系统级鼠标事件**（`SetCursorPos` + `mouse_event`） | ✅ 与真人点击等价，可长时间稳定运行 |
+| Requesting a note URL directly | ❌ `安全限制 300013` / `error_code 300031 当前笔记暂时无法浏览` |
+| Browser-synthesised clicks (CDP `Input.dispatchMouseEvent`) | ❌ Works a few times, then gets flagged → security restriction / captcha |
+| **Windows OS-level mouse events** (`SetCursorPos` + `mouse_event`) | ✅ Equivalent to a human click; stable over long runs |
 
-实测对比（同一时刻、同一账号）：**URL 跳转被拦，系统级点击成功读取 265 字正文。**
+Measured comparison (same moment, same account): **URL navigation was blocked while an OS-level
+click successfully read 265 characters of body text.**
 
-除了反爬，还解决了三个实际坑：
+Beyond anti-bot, it fixes three practical traps:
 
-- **搜索结果虚拟列表**：接口返回 44–66 条卡片，DOM 只渲染约 30 条 → 只点真实存在的
-- **详情接口 500**：`/api/sns/web/v1/feed` 一律失败 → 正文/评论只从 DOM 读
-- **图片是 WebP**：URL 以 `.jpg` 结尾但实际是 WebP，python-docx 不认 → 魔数嗅探 + 转码
+- **Virtualised search list**: the API returns 44–66 cards but the DOM renders only ~30 → click
+  only the cards that actually exist;
+- **Detail endpoint returns 500**: `/api/sns/web/v1/feed` always fails → read body text and
+  comments from the DOM only;
+- **Images are WebP**: the URL ends in `.jpg` but the bytes are WebP, which python-docx rejects →
+  sniff the magic bytes and transcode.
 
 ---
 
-## 结构
+## Layout
 
 ```
 .
-├── plugin/            DSH 插件
-│   ├── package.json     清单（dsh.skill 指向技能与脚本）
-│   ├── index.js         Host 侧：注册运行时技能 + 状态接口
-│   ├── install.mjs      安装 / 卸载（写 profile 补丁层）
-│   ├── selftest.mjs     不开 DSH 即可验证（mock context）
-│   └── README.md        安装与使用详解
-├── skill/SKILL.md     技能正文（模型加载的操作手册）
-├── scripts/           可直接运行的实现
-│   ├── config.mjs       路径解析（环境变量 / config.json / 默认值）
-│   ├── launch.mjs       拉起带调试端口的隔离浏览器
-│   ├── calibrate.mjs    视口原点自校准（系统级点击的前提）
-│   ├── osclick.mjs/.ps1 Windows 系统级鼠标输入
-│   ├── core.mjs         CDP 搜索 / 读笔记
-│   ├── click-read.mjs   点击式阅读（含虚拟列表处理）
-│   ├── crawler.mjs      持续采集 + 限流退避
-│   ├── campaign.mjs     采集 + 定时报告编排
-│   ├── kb.mjs           知识库
-│   ├── imgfetch.mjs     配图下载（WebP→JPEG）
-│   ├── synthesize.py    报告合成（多方印证 / 待解答问题 / 配图）
-│   ├── intel.py         知识库情报检索
+├── plugin/            DSH plugin
+│   ├── package.json     manifest (dsh.skill points at the skill and scripts)
+│   ├── index.js         Host side: registers the runtime skill + status endpoint
+│   ├── install.mjs      install / uninstall (writes the profile patch layer)
+│   ├── selftest.mjs     verify without DSH running (mock context)
+│   └── README.md        installation and usage details
+├── skill/SKILL.md     the skill body (the playbook the model loads)
+├── scripts/           runnable implementation
+│   ├── config.mjs       path resolution (env vars / config.json / defaults)
+│   ├── launch.mjs       start the isolated browser with a debug port
+│   ├── calibrate.mjs    self-verifying viewport-origin calibration (prerequisite for OS clicks)
+│   ├── osclick.mjs/.ps1 Windows OS-level mouse input
+│   ├── core.mjs         CDP search / read a note
+│   ├── click-read.mjs   click-based reading (handles the virtualised list)
+│   ├── crawler.mjs      continuous collection + rate-limit backoff
+│   ├── campaign.mjs     collection + scheduled report orchestration
+│   ├── kb.mjs           knowledge base
+│   ├── imgfetch.mjs     image download (WebP → JPEG)
+│   ├── synthesize.py    report synthesis (cross-note agreement / unanswered questions / images)
+│   ├── intel.py         search the knowledge base
 │   └── md2docx.py       Markdown → Word
-└── docs/QUICKSTART.md 5 分钟上手
+└── docs/QUICKSTART.md 5-minute quick start
 ```
 
 ---
 
-## 快速开始
+## Quick start
 
-**不装插件，直接用脚本：**
+**Without the plugin, straight from the scripts:**
 
 ```powershell
 git clone <this repo>
 cd scripts
 
-node launch.mjs      # 拉起隔离浏览器（首次在这个窗口里扫码登录小红书）
-node calibrate.mjs   # 校准鼠标坐标映射（自验证）
-node core.mjs search "关键词" latest
+node launch.mjs      # start the isolated browser (scan the QR code in that window once)
+node calibrate.mjs   # calibrate the mouse coordinate mapping (self-verifying)
+node core.mjs search "keyword" latest
 ```
 
-**装成 DSH 技能：**
+**Install as a DSH skill:**
 
 ```powershell
 cd plugin
 node install.mjs
-# 然后完全退出 DSH（含托盘图标）再打开
+# then exit DSH completely (including the tray icon) and start it again
 ```
 
-详见 [plugin/README.md](plugin/README.md) 与 [docs/QUICKSTART.md](docs/QUICKSTART.md)。
+See [plugin/README.md](plugin/README.md) and [docs/QUICKSTART.md](docs/QUICKSTART.md).
 
 ---
 
-## 运行要求
+## Requirements
 
-| 需求 | 说明 |
+| Requirement | Notes |
 |---|---|
-| **Windows** | 系统级鼠标事件走 `user32.dll`（PowerShell + P/Invoke）。macOS/Linux 需换 `cliclick` / `xdotool` |
-| **Node.js ≥ 18** | 依赖内置 `fetch` 与 `WebSocket` |
-| **Python + Pillow** | 仅报告生成与图片转码需要 |
-| **Edge 或 Chrome** | 自动探测，可用 `XHS_BROWSER` 覆盖 |
-| 小红书账号 | 首次需在隔离窗口扫码登录一次，之后登录态存在本地 profile |
+| **Windows** | OS-level mouse events go through `user32.dll` (PowerShell + P/Invoke). On macOS/Linux you would swap in `cliclick` / `xdotool` |
+| **Node.js ≥ 18** | Uses the built-in `fetch` and `WebSocket` |
+| **Python + Pillow** | Needed only for report generation and image transcoding |
+| **Edge or Chrome** | Auto-detected; override with `XHS_BROWSER` |
+| A Xiaohongshu account | Sign in by QR code in the isolated window once; the session persists in the local profile |
 
 ---
 
-## 配置（环境变量）
+## Configuration (environment variables)
 
-| 变量 | 默认 | 含义 |
+| Variable | Default | Meaning |
 |---|---|---|
-| `XHS_WORKSPACE` | `~/Desktop/xhs` | 知识库 / 浏览器 profile / 报告的位置 |
-| `XHS_BROWSER` | 自动探测 | 浏览器可执行文件 |
-| `XHS_PORT` | `9222` | 调试端口 |
-| `XHS_PYTHON` | `python` | 报告工具用的 Python |
-| `XHS_DETAIL_GAP_MS` | `25000` | 每篇笔记之间的间隔 |
-| `XHS_SEARCH_GAP_MS` | `30000` | 搜索之间的间隔 |
-| `XHS_MAX_DETAILS_PER_HOUR` | `60` | 每小时打开笔记上限 |
-| `XHS_BLOCK_COOLDOWN_MS` | `1200000` | 触发限制后的降温时长 |
-| `XHS_END_HOUR` | `22` | 定时任务跑到当天几点 |
+| `XHS_WORKSPACE` | `~/Desktop/xhs` | Where the knowledge base, browser profile and reports live |
+| `XHS_BROWSER` | auto-detected | Browser executable |
+| `XHS_PORT` | `9222` | Debug port |
+| `XHS_PYTHON` | `python` | Python used by the report tooling |
+| `XHS_DETAIL_GAP_MS` | `25000` | Gap between opening notes |
+| `XHS_SEARCH_GAP_MS` | `30000` | Gap between searches |
+| `XHS_MAX_DETAILS_PER_HOUR` | `60` | Hard cap on notes opened per hour |
+| `XHS_BLOCK_COOLDOWN_MS` | `1200000` | Cooldown after hitting a rate limit |
+| `XHS_END_HOUR` | `22` | Hour of day the scheduled job stops |
 
 ---
 
-## 数据落在哪
+## Where the data lives
 
 ```
 <workspace>/
-├── edge-profile/     隔离窗口的登录态（独立于你日常浏览器）
+├── edge-profile/     session state of the isolated window (separate from your daily browser)
 ├── kb/
-│   ├── notes.json     笔记（正文 / 作者 / 时间 / 点赞 / 图集 / 评论 / 来源关键词）
-│   ├── searches.json  检索记录
-│   └── img/           已下载配图（JPEG）
-└── reports/           报告（md + docx，含内嵌配图）
+│   ├── notes.json     notes (body / author / time / likes / images / comments / source keyword)
+│   ├── searches.json  search history
+│   └── img/           downloaded images (JPEG)
+└── reports/           reports (md + docx, with embedded images)
 ```
 
 ---
 
-## 已知限制
+## Known limitations
 
-- **仅 Windows**：核心的点击与校准依赖 Win32 API。
-- **点击会短暂占用真实鼠标**：每次点击光标会移过去约 0.2 秒，跑批期间不适合同时用电脑。
-- **平台限流按账号频次计算**，与「是否真人点击」无关。实测超过约 100 篇/半小时会触发安全限制。
-- **登录态会过期**，需要偶尔重新扫码。
-- **页面结构可能变化**，选择器（`#detail-desc`、`.comment-item` 等）届时需要更新。
-- 技能正文里内嵌的路径是**安装时解析的绝对路径**，换机器要重跑安装。
+- **Windows only**: the core clicking and calibration depend on Win32 APIs.
+- **Clicking briefly takes over the real mouse**: each click moves the cursor for about 0.2 s, so
+  running a batch is not compatible with using the machine at the same time.
+- **Platform rate limits are per account**, not per "human-like click". Measured: more than
+  roughly 100 notes per half hour triggers a security restriction.
+- **Sessions expire** and occasionally need a new QR scan.
+- **Page structure can change**, in which case selectors (`#detail-desc`, `.comment-item`, …) need
+  updating.
+- Paths embedded in the skill body are **absolute paths resolved at install time**, so a new
+  machine requires re-running the installer.
 
 ---
 
-## 合规与免责
+## Compliance and disclaimer
 
-- 本项目**只读**：搜索、读笔记、读评论。不做点赞、评论、关注、发帖、私信。
-- 只应处理使用者有权访问的公开内容。**登录态属于使用者本人，不要导出或分享 cookie。**
-- 请遵守默认限速。高频批量抓取会触发平台风控，也可能违反平台服务条款。
-- 整理出的内容对外发布时，请注明信息来自小红书用户并尊重原作者。
-- 本项目仅供个人学习与信息整理使用，使用者需自行承担合规责任。
+- This project is **read-only**: search, read notes, read comments. It does not like, comment,
+  follow, post or send direct messages.
+- Only process public content the user is entitled to access. **The session belongs to the user —
+  never export or share the cookies.**
+- Respect the default rate limits. High-frequency bulk scraping triggers platform risk controls
+  and may violate the platform's terms of service.
+- When publishing organised material, credit the Xiaohongshu users who created it and respect
+  their authorship.
+- This project is intended for personal study and information organisation only; users bear
+  responsibility for their own compliance.
 
 ---
 
 ## License
 
-MIT — 见 [LICENSE](LICENSE)。
+MIT — see [LICENSE](LICENSE).
